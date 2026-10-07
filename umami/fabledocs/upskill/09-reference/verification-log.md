@@ -55,7 +55,7 @@ Convention: `__verified__` = command run in this environment and output observed
 3. Session/visitor identity is a **hash**, not a cookie: `uuid(sourceId, ip, userAgent, sessionSalt)` with a monthly-rotating salt. `src/app/api/send/route.ts:147`, `src/lib/crypto.ts:60-78`.
 4. Persistence is polymorphic: one logical write dispatches to Postgres (Prisma) **or** ClickHouse, and optionally Kafka, by environment variable — never both stores at once. `src/lib/db.ts:22-36`.
 5. `saveEvent` → `saveEventData` → `saveRevenue` run as sequential awaits inside the request; there is no outbox/transaction spanning them on the ClickHouse path. `src/queries/sql/events/saveEvent.ts:143-167`.
-6. Kafka `sendMessage` swallows errors (`console.log` then returns undefined) — a broker failure silently drops the event. `src/lib/kafka.ts:87-90`.
+6. Kafka `sendMessage` swallows *connect* errors (`console.log` then returns undefined) — a broker failure at connect time silently drops the event. `src/lib/kafka.ts:87-90`. **Corrected 2026-10-07:** `return producer.send(...)` (L73) is not awaited, so send rejections escape the `catch`; and `connect()` (L93-103) assigns `kafka` before the producer connects, making a failed first connect permanent for the process.
 7. `/api/record` deliberately calls `getWebsite` directly instead of the Redis-cached `fetchWebsite`, to avoid a stale `replayEnabled` flag. `src/app/api/record/route.ts:56-57`.
 
 ## Possible risks (labelled — investigate, not confirmed bugs)
@@ -74,3 +74,11 @@ After drafting, key anchors were re-opened and confirmed against the live source
 - ClickHouse and Kafka code paths read but not run; correctness of aggregate SQL against a live ClickHouse not verified.
 - `@umami/react-zen` is an external design-system dependency; its internals were not inspected, only its usage surface.
 - The `docs/` folder already contained three unrelated learning trees (`architectural-cartographer`, `mission-learning-path`, `user-story-build-path`); these were left untouched, and this curriculum lives separately under `fabledocs/upskill/`.
+
+## Refinement pass (2026-10-07)
+
+Static only; nothing installed or run.
+
+- **Link depth repaired.** 395 relative links in 31 files under `upskill/<module>/` used `../../src/...` (which resolves inside `fabledocs/`) instead of `../../../src/...`. Each was rewritten only where the corrected target exists on disk; one placeholder (`../relative/path.ts` in the README's conventions section) is intentionally fake.
+- **Kafka finding corrected** (risk #1 and every place that cited `kafka.ts:87-90`). Re-reading `src/lib/kafka.ts` L66-103 shows three failure modes, not one: connect failure swallowed (200); send failure on a live producer *escapes* the `catch` because `return producer.send(...)` is not awaited (→ `send/route.ts` 500); and a failed first connect is sticky because `kafka` is assigned before `producer.connect()` resolves. The Recipe 7 test sketch in `05-quality-engineering/02-writing-tests-here.md` previously asserted the wrong behavior and was rewritten as separate cases.
+- Re-confirmed by reading: `batch/route.ts` L7 (`z.array(anyObjectParam)`, no `.max`), L21-46 (sequential re-entry into `send.POST`); `prisma.ts` L318-323 (`order by ${orderBy}`); `tracker/index.js` L192-194 (no-op catch, no retry); no `rateLimit(` call outside `src/lib/redis.ts`.

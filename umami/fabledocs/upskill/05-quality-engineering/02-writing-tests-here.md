@@ -23,7 +23,7 @@ test('classifies a narrow desktop as laptop', () => {
 
 **Command:** `pnpm test src/lib/detect.test.ts`
 **Trap:** use realistic UA strings — `ua-parser-js` returns different device types for junk input.
-**Real anchor:** `getDevice` logic at [`detect.ts:49-61`](../../src/lib/detect.ts).
+**Real anchor:** `getDevice` logic at [`detect.ts:49-61`](../../../src/lib/detect.ts).
 
 ---
 
@@ -45,7 +45,7 @@ test('rejects non-positive pageSize', () => {
 ```
 
 **Command:** `pnpm test src/lib/schema.test.ts`
-**Trap:** query params are strings — test `'10'` not `10` to exercise `z.coerce` ([`schema.ts:78`](../../src/lib/schema.ts)).
+**Trap:** query params are strings — test `'10'` not `10` to exercise `z.coerce` ([`schema.ts:78`](../../../src/lib/schema.ts)).
 **Ties to:** Ticket 5 (adding a `pageSize` max).
 
 ---
@@ -74,8 +74,8 @@ test('truncates event name to 50 chars', async () => {
 ```
 
 **Command:** `pnpm test src/queries/sql/events/saveEvent.test.ts`
-**Trap:** `runQuery` dispatches by env — clear `CLICKHOUSE_URL` and set a Postgres `DATABASE_URL` so the relational branch runs ([`db.ts:22-36`](../../src/lib/db.ts)).
-**Ties to:** Ticket 2. **Real anchor:** truncation at [`saveEvent.ts:131`](../../src/queries/sql/events/saveEvent.ts).
+**Trap:** `runQuery` dispatches by env — clear `CLICKHOUSE_URL` and set a Postgres `DATABASE_URL` so the relational branch runs ([`db.ts:22-36`](../../../src/lib/db.ts)).
+**Ties to:** Ticket 2. **Real anchor:** truncation at [`saveEvent.ts:131`](../../../src/queries/sql/events/saveEvent.ts).
 
 ---
 
@@ -100,7 +100,7 @@ test('denies a user who is not the owner', async () => {
 ```
 
 **Command:** `pnpm test src/permissions/website.test.ts`
-**Trap:** `getEntity` is imported from `@/lib/entity` in the real code — mock the exact module path used ([`website.ts:3`](../../src/permissions/website.ts)).
+**Trap:** `getEntity` is imported from `@/lib/entity` in the real code — mock the exact module path used ([`website.ts:3`](../../../src/permissions/website.ts)).
 **Value:** this is the IDOR guard; a unit test here is high-leverage.
 
 ---
@@ -123,8 +123,8 @@ test('shows a required error on empty submit', async () => {
 ```
 
 **Command:** `pnpm test src/app/.../SomeForm.test.tsx`
-**Trap:** the test id attribute is `data-test` (configured in [`setup.ts`](../../src/test/setup.ts)); `getByTestId('button-submit')` maps to `data-test="button-submit"`. Use `findBy*` for async.
-**Real anchor:** provider wrapping in [`render.tsx`](../../src/test/render.tsx).
+**Trap:** the test id attribute is `data-test` (configured in [`setup.ts`](../../../src/test/setup.ts)); `getByTestId('button-submit')` maps to `data-test="button-submit"`. Use `findBy*` for async.
+**Real anchor:** provider wrapping in [`render.tsx`](../../../src/test/render.tsx).
 
 ---
 
@@ -157,16 +157,25 @@ Assert the chosen behavior when a downstream send fails.
 // Illustrative fake code: not from this repo
 import { expect, test, vi } from 'vitest';
 
-test('kafka send failure does not throw', async () => {
-  vi.mock('kafkajs'); // producer.send rejects
+// Requires KAFKA_URL + KAFKA_BROKER set in the test env, and a kafkajs mock
+// whose producer().connect / producer().send you control per test.
+
+test('connect failure is swallowed (resolves undefined)', async () => {
+  // mock: producer().connect rejects
   const kafka = (await import('@/lib/kafka')).default;
   await expect(kafka.sendMessage('event', { a: 1 })).resolves.toBeUndefined();
 });
+
+test('send failure on a connected producer is NOT swallowed', async () => {
+  // mock: connect resolves, send rejects
+  const kafka = (await import('@/lib/kafka')).default;
+  await expect(kafka.sendMessage('event', { a: 1 })).rejects.toThrow();
+});
 ```
 
-**Command:** `pnpm test src/lib/kafka.test.ts`
-**Trap:** this pins the *current* (swallow-and-return-undefined) behavior. If you implement the outbox fix, this test must change to assert the new guarantee — which is exactly the point of the test.
-**Real anchor:** [`kafka.ts:87-90`](../../src/lib/kafka.ts).
+**Command:** `pnpm test src/lib/kafka.test.ts` (inferred; no such test file exists in the repo yet)
+**Trap:** an earlier draft of this recipe asserted that *every* send failure resolves to `undefined`. That is wrong for the current code: `return producer.send(...)` (L73) is not awaited inside the `try`, so a send rejection escapes the `catch`. Writing the two cases separately is the point — a test that pins the wrong behavior is worse than no test. Add a third test for the sticky case (connect fails once, then succeeds; the next `sendMessage` still never reaches `send`) before attempting the outbox fix.
+**Real anchor:** [`kafka.ts:87-90`](../../../src/lib/kafka.ts).
 
 ---
 
@@ -190,7 +199,7 @@ test('salt is stable within a month, changes across it', () => {
 ```
 
 **Command:** `pnpm test src/lib/crypto.test.ts`
-**Trap:** `getSalt` takes the date explicitly (good — no clock mocking needed here). For the *visit-expiry* logic in `send/route.ts`, you'd need `vi.setSystemTime()` because it reads `Date.now()` ([`send/route.ts:141`](../../src/app/api/send/route.ts)).
+**Trap:** `getSalt` takes the date explicitly (good — no clock mocking needed here). For the *visit-expiry* logic in `send/route.ts`, you'd need `vi.setSystemTime()` because it reads `Date.now()` ([`send/route.ts:141`](../../../src/app/api/send/route.ts)).
 **Ties to:** Tickets 15, 17.
 
 ---
